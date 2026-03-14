@@ -1,0 +1,6 @@
+.env
+.gradle/
+.gradle-home/
+.build/
+build/
+*.class
