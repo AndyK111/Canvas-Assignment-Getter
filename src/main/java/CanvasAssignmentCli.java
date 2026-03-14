@@ -1,8 +1,8 @@
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -23,11 +23,32 @@ public final class CanvasAssignmentCli
     private static final int STATUS_WIDTH = 14;
     private static final int GRADE_WIDTH = 14;
     private static final String ANSI_RESET = "\u001B[0m";
-    private static final String ANSI_GREEN = "\u001B[32m";
-    private static final String ANSI_RED = "\u001B[31m";
-    private static final String ANSI_YELLOW = "\u001B[33m";
     private static final String ANSI_BLACK_ON_WHITE = "\u001B[30;47m";
-    private static final long DUE_COLOR_MAX_HOURS = 24L * 7L;
+    private static final String ANSI_WHITE_ON_RED = "\u001B[37;41m";
+    private static final String ANSI_BLACK_ON_MINT = "\u001B[38;2;0;0;0;48;2;182;244;197m";
+    private static final String ANSI_BLACK_ON_SALMON = "\u001B[38;2;0;0;0;48;2;255;160;160m";
+    private static final String ANSI_BLACK_ON_MELLOW_YELLOW = "\u001B[38;2;0;0;0;48;2;255;235;153m";
+    private static final String ANSI_BLACK_ON_CREAMSICLE = "\u001B[38;2;0;0;0;48;2;255;195;120m";
+    private static final String ANSI_BLACK_ON_SOFT_BLUE = "\u001B[38;2;0;0;0;48;2;173;216;230m";
+    private static final int[][] DATE_COLOR_STEPS = {
+            {255, 255, 255},
+            {255, 236, 236},
+            {255, 214, 214},
+            {255, 190, 190},
+            {255, 166, 166},
+            {255, 142, 142},
+            {255, 118, 118}
+    };
+    private static final int[][] TIME_COLOR_STEPS = {
+            {255, 255, 255},
+            {255, 230, 230},
+            {255, 202, 202},
+            {255, 174, 174},
+            {255, 146, 146},
+            {255, 118, 118},
+            {255, 90, 90}
+    };
+    private static final long TIME_GRADIENT_MINUTES = 24L * 60L;
 
     //Constructors
     public static void main(String[] args)
@@ -206,7 +227,9 @@ public final class CanvasAssignmentCli
         System.out.println();
     }
 
-    private void renderGroupedByDate(List<Assignment> assignments, ArgumentConfig config)
+    private void renderGroupedByDate(
+            List<Assignment> assignments,
+            ArgumentConfig config)
     {
         String headerFormat = buildDateGroupFormat(config.isShowGrades());
         int tableWidth = dateGroupTableWidth(config.isShowGrades());
@@ -227,7 +250,9 @@ public final class CanvasAssignmentCli
         }
     }
 
-    private void renderGroupedByClass(List<Assignment> assignments, ArgumentConfig config)
+    private void renderGroupedByClass(
+            List<Assignment> assignments,
+            ArgumentConfig config)
     {
         String headerFormat = buildClassGroupFormat(config.isShowGrades());
         int tableWidth = classGroupTableWidth(config.isShowGrades());
@@ -239,7 +264,7 @@ public final class CanvasAssignmentCli
             if (!assignment.getCourseName().equals(currentCourse))
             {
                 currentCourse = assignment.getCourseName();
-                System.out.println(center(currentCourse, tableWidth));
+                System.out.println(formatBanner(currentCourse, tableWidth));
                 printClassGroupHeaders(headerFormat, config.isShowGrades());
             }
 
@@ -302,10 +327,10 @@ public final class CanvasAssignmentCli
             ZonedDateTime now)
     {
         ZonedDateTime dueAt = assignment.getDueAtIn(config.getZoneId());
-        String timeCell = colorizeDueValue(
-                formatCell(dueAt.format(TIME_FORMAT), TIME_WIDTH),
-                dueAt,
-                now);
+        String timeCellValue = formatCell(dueAt.format(TIME_FORMAT), TIME_WIDTH);
+        String timeCell = isPastDue(dueAt, now)
+                ? colorizePastDueValue(timeCellValue)
+                : colorizeDueTime(timeCellValue, dueAt, now);
         String courseCell = formatCell(truncate(assignment.getCourseName(), COURSE_WIDTH), COURSE_WIDTH);
         String assignmentCell = formatCell(truncate(assignment.getAssignmentName(), ASSIGNMENT_WIDTH), ASSIGNMENT_WIDTH);
         String statusLabel = truncate(assignment.getStatusLabel(now, config.getZoneId()), STATUS_WIDTH);
@@ -328,14 +353,18 @@ public final class CanvasAssignmentCli
             ZonedDateTime now)
     {
         ZonedDateTime dueAt = assignment.getDueAtIn(config.getZoneId());
-        String dateCell = colorizeDueValue(
-                formatCell(dueAt.toLocalDate().format(DATE_COLUMN_FORMAT), DATE_WIDTH),
-                dueAt,
-                now);
-        String timeCell = colorizeDueValue(
-                formatCell(dueAt.format(TIME_FORMAT), TIME_WIDTH),
-                dueAt,
-                now);
+        String dateCellValue = formatCell(dueAt.toLocalDate().format(DATE_COLUMN_FORMAT), DATE_WIDTH);
+        String timeCellValue = formatCell(dueAt.format(TIME_FORMAT), TIME_WIDTH);
+        String dateCell = isPastDue(dueAt, now)
+                ? colorizePastDueValue(dateCellValue)
+                : colorizeDueDate(
+                        dateCellValue,
+                        dueAt.toLocalDate(),
+                        now.toLocalDate(),
+                        config.getWhiteDate());
+        String timeCell = isPastDue(dueAt, now)
+                ? colorizePastDueValue(timeCellValue)
+                : colorizeDueTime(timeCellValue, dueAt, now);
         String assignmentCell = formatCell(truncate(assignment.getAssignmentName(), ASSIGNMENT_WIDTH), ASSIGNMENT_WIDTH);
         String statusLabel = truncate(assignment.getStatusLabel(now, config.getZoneId()), STATUS_WIDTH);
         String statusCell = colorizeStatus(formatCell(statusLabel, STATUS_WIDTH), statusLabel);
@@ -407,6 +436,11 @@ public final class CanvasAssignmentCli
 
     private static String formatDateBanner(String value, int width)
     {
+        return formatBanner(value, width);
+    }
+
+    private static String formatBanner(String value, int width)
+    {
         return ANSI_BLACK_ON_WHITE + centerAndPad(value, width) + ANSI_RESET;
     }
 
@@ -465,23 +499,89 @@ public final class CanvasAssignmentCli
     {
         return switch (statusLabel)
         {
-            case "graded" -> ANSI_GREEN + value + ANSI_RESET;
-            case "missing" -> ANSI_RED + value + ANSI_RESET;
-            case "late" -> ANSI_YELLOW + value + ANSI_RESET;
+            case "graded" -> ANSI_BLACK_ON_MINT + value + ANSI_RESET;
+            case "missing" -> ANSI_BLACK_ON_SALMON + value + ANSI_RESET;
+            case "late" -> ANSI_BLACK_ON_MELLOW_YELLOW + value + ANSI_RESET;
+            case "overdue" -> ANSI_BLACK_ON_CREAMSICLE + value + ANSI_RESET;
+            case "not due" -> ANSI_BLACK_ON_SOFT_BLUE + value + ANSI_RESET;
             default -> value;
         };
     }
 
-    private static String colorizeDueValue(String value, ZonedDateTime dueAt, ZonedDateTime now)
+    private static String colorizePastDueValue(String value)
     {
-        long hoursUntilDue = Duration.between(now, dueAt).toHours();
-        double clampedRatio = Math.max(0.0d, Math.min(1.0d, hoursUntilDue / (double) DUE_COLOR_MAX_HOURS));
-        int greenBlueValue = (int) Math.round(96 + ((255 - 96) * clampedRatio));
-        return ansiRgb(255, greenBlueValue, greenBlueValue) + value + ANSI_RESET;
+        return ANSI_WHITE_ON_RED + value + ANSI_RESET;
     }
 
-    private static String ansiRgb(int red, int green, int blue)
+    private static String colorizeDueDate(
+            String value,
+            LocalDate dueDate,
+            LocalDate currentDate,
+            LocalDate whiteDate)
     {
-        return "\u001B[38;2;" + red + ";" + green + ";" + blue + "m";
+        int colorIndex = dateColorIndex(dueDate, currentDate, whiteDate);
+        int[] rgb = DATE_COLOR_STEPS[colorIndex];
+        return ansiBlackOnRgb(rgb[0], rgb[1], rgb[2]) + value + ANSI_RESET;
+    }
+
+    private static String colorizeDueTime(String value, ZonedDateTime dueAt, ZonedDateTime now)
+    {
+        int colorIndex = timeColorIndex(dueAt, now);
+        int[] rgb = TIME_COLOR_STEPS[colorIndex];
+        return ansiBlackOnRgb(rgb[0], rgb[1], rgb[2]) + value + ANSI_RESET;
+    }
+
+    private static int dateColorIndex(LocalDate dueDate, LocalDate currentDate, LocalDate whiteDate)
+    {
+        if (dueDate == null || currentDate == null || whiteDate == null)
+        {
+            return DATE_COLOR_STEPS.length - 1;
+        }
+
+        long daysUntilDue = ChronoUnit.DAYS.between(currentDate, dueDate);
+        if (daysUntilDue <= 0L)
+        {
+            return DATE_COLOR_STEPS.length - 1;
+        }
+
+        long totalGradientDays = ChronoUnit.DAYS.between(currentDate, whiteDate);
+        if (totalGradientDays <= 0L)
+        {
+            return DATE_COLOR_STEPS.length - 1;
+        }
+
+        long clampedDays = Math.min(daysUntilDue, totalGradientDays);
+        double rawRatio = 1.0d - (clampedDays / (double) totalGradientDays);
+        double clampedRatio = Math.max(0.0d, Math.min(1.0d, rawRatio));
+        return (int) Math.round(clampedRatio * (DATE_COLOR_STEPS.length - 1));
+    }
+
+    private static int timeColorIndex(ZonedDateTime dueAt, ZonedDateTime now)
+    {
+        if (dueAt == null || now == null)
+        {
+            return TIME_COLOR_STEPS.length - 1;
+        }
+
+        long minutesUntilDue = ChronoUnit.MINUTES.between(now, dueAt);
+        if (minutesUntilDue <= 0L)
+        {
+            return TIME_COLOR_STEPS.length - 1;
+        }
+
+        long clampedMinutes = Math.min(minutesUntilDue, TIME_GRADIENT_MINUTES);
+        double rawRatio = 1.0d - (clampedMinutes / (double) TIME_GRADIENT_MINUTES);
+        double clampedRatio = Math.max(0.0d, Math.min(1.0d, rawRatio));
+        return (int) Math.round(clampedRatio * (TIME_COLOR_STEPS.length - 1));
+    }
+
+    private static boolean isPastDue(ZonedDateTime dueAt, ZonedDateTime now)
+    {
+        return dueAt != null && now != null && !dueAt.isAfter(now);
+    }
+
+    private static String ansiBlackOnRgb(int red, int green, int blue)
+    {
+        return "\u001B[38;2;0;0;0;48;2;" + red + ";" + green + ";" + blue + "m";
     }
 }

@@ -28,6 +28,7 @@ final class ArgumentConfig
     private final GroupBy groupBy;
     private final LocalDate afterDate;
     private final LocalDate beforeDate;
+    private final LocalDate whiteDate;
     private final int quantity;
     private final boolean showGrades;
     private final boolean showProgress;
@@ -43,6 +44,7 @@ final class ArgumentConfig
             GroupBy groupBy,
             LocalDate afterDate,
             LocalDate beforeDate,
+            LocalDate whiteDate,
             int quantity,
             boolean showGrades,
             boolean showProgress,
@@ -56,6 +58,7 @@ final class ArgumentConfig
         this.groupBy = groupBy;
         this.afterDate = afterDate;
         this.beforeDate = beforeDate;
+        this.whiteDate = whiteDate;
         this.quantity = quantity;
         this.showGrades = showGrades;
         this.showProgress = showProgress;
@@ -88,6 +91,7 @@ final class ArgumentConfig
         GroupBy groupBy = GroupBy.DATE;
         LocalDate afterDate = null;
         LocalDate beforeDate = null;
+        LocalDate whiteDate = null;
         int quantity = 0;
         boolean showGrades = false;
         boolean showProgress = false;
@@ -127,6 +131,10 @@ final class ArgumentConfig
                     beforeDate = parseDate(requireValue(args, index, arg), arg);
                     index += 2;
                     break;
+                case "--white-date":
+                    whiteDate = parseDate(requireValue(args, index, arg), arg);
+                    index += 2;
+                    break;
                 case "--quantity":
                     quantity = parseQuantity(requireValue(args, index, arg));
                     index += 2;
@@ -153,13 +161,17 @@ final class ArgumentConfig
         }
 
         LocalDate today = LocalDate.now(zoneId);
+        if (whiteDate == null)
+        {
+            whiteDate = today.plusDays(30L);
+        }
         if (mode == Mode.WEEKLY)
         {
             afterDate = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             beforeDate = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
         }
 
-        validateArguments(mode, afterDate, beforeDate, quantity);
+        validateArguments(mode, afterDate, beforeDate, whiteDate, quantity, today);
 
         return new ArgumentConfig(
                 normalizeBaseUrl(baseUrl),
@@ -169,6 +181,7 @@ final class ArgumentConfig
                 groupBy,
                 afterDate,
                 beforeDate,
+                whiteDate,
                 quantity,
                 showGrades,
                 showProgress,
@@ -176,7 +189,13 @@ final class ArgumentConfig
                 helpRequested);
     }
 
-    private static void validateArguments(Mode mode, LocalDate afterDate, LocalDate beforeDate, int quantity)
+    private static void validateArguments(
+            Mode mode,
+            LocalDate afterDate,
+            LocalDate beforeDate,
+            LocalDate whiteDate,
+            int quantity,
+            LocalDate today)
             throws UserInputException
     {
         if (mode == Mode.DATE)
@@ -202,6 +221,11 @@ final class ArgumentConfig
         if (afterDate != null && beforeDate != null && beforeDate.isBefore(afterDate))
         {
             throw new UserInputException("--before must be on or after --after.");
+        }
+
+        if (whiteDate != null && !whiteDate.isAfter(today))
+        {
+            throw new UserInputException("--white-date must be after today.");
         }
     }
 
@@ -310,6 +334,7 @@ final class ArgumentConfig
                 Options:
                   --after <date>          Inclusive start date (date mode)
                   --before <date>         Inclusive end date / cutoff date
+                  --white-date <date>     Date that should render as fully white (default: today + 30 days)
                   --quantity <n>          Number of assignments to show (quantity mode)
                   --group-by <mode>       date or class (default: date)
                   --show-grades           Show a grade column
@@ -359,6 +384,11 @@ final class ArgumentConfig
     LocalDate getBeforeDate()
     {
         return beforeDate;
+    }
+
+    LocalDate getWhiteDate()
+    {
+        return whiteDate;
     }
 
     int getQuantity()

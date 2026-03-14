@@ -325,7 +325,7 @@ final class Assignment
         {
             return "overdue";
         }
-        return "pending";
+        return "not due";
     }
 
     String getGradeLabel()
